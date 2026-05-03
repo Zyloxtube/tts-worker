@@ -1,6 +1,5 @@
-// Cloudflare Worker with Playwright for TTS generation
+import { chromium } from '@cloudflare/playwright';
 
-// Character URL mapping
 const CHARACTER_URLS = {
   'spongebob': 'https://nicevoice.org/ai-voice-generator/spongebob-squarepants/',
   'patrick': 'https://nicevoice.org/ai-voice-generator/patrick-star/',
@@ -8,34 +7,28 @@ const CHARACTER_URLS = {
   'mrkrabs': 'https://nicevoice.org/ai-voice-generator/mr-krabs/'
 };
 
-// Job storage (in-memory, resets on cold start)
 const jobs = new Map();
 
-// Generate unique ID
 function generateJobId() {
   return crypto.randomUUID();
 }
 
-// Main worker handler
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const path = url.pathname;
     const method = request.method;
 
-    // CORS headers
     const corsHeaders = {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type'
     };
 
-    // Handle OPTIONS preflight
     if (method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: corsHeaders });
     }
 
-    // Route: /generate-and-wait
     if (path === '/generate-and-wait' && method === 'GET') {
       const text = url.searchParams.get('text')?.trim();
       const character = url.searchParams.get('character')?.toLowerCase() || 'spongebob';
@@ -63,26 +56,22 @@ export default {
       });
 
       try {
-        // Launch browser using Cloudflare's Browser Run - CHANGED from start() to launch()
-        const browser = await env.MYBROWSER.createBrowser();
-        
         jobs.set(jobId, { ...jobs.get(jobId), status: 'processing' });
 
+        // CORRECT WAY: Connect to Browser Run using Playwright
+        // The browser binding provides the WebSocket endpoint
+        const browser = await chromium.connectOverCDP(env.MYBROWSER);
+        
         const page = await browser.newPage();
         
         const voiceUrl = CHARACTER_URLS[character];
         
-        // Navigate to character page
         await page.goto(voiceUrl, { waitUntil: 'networkidle' });
         await page.waitForTimeout(2000);
         
-        // Type text in textarea
         await page.fill('textarea.textarea', text);
-        
-        // Click generate button
         await page.click('button.btn-primary:has-text("Generate Voiceover")');
         
-        // Wait for audio URL (check every 0.5 seconds, max 90 seconds)
         let audioUrl = null;
         for (let i = 0; i < 180; i++) {
           await page.waitForTimeout(500);
@@ -103,10 +92,9 @@ export default {
             completed_at: new Date().toISOString()
           });
           
-          const job = jobs.get(jobId);
           return Response.json({
             success: true,
-            audio_url: job.audio_url,
+            audio_url: audioUrl,
             text: text,
             character: character
           }, { headers: corsHeaders });
@@ -128,7 +116,6 @@ export default {
       }
     }
 
-    // Route: /characters
     if (path === '/characters' && method === 'GET') {
       return Response.json({
         success: true,
@@ -137,7 +124,6 @@ export default {
       }, { headers: corsHeaders });
     }
 
-    // Route: /health
     if (path === '/health' || path === '/') {
       const activeJobs = Array.from(jobs.values()).filter(j => j.status === 'processing').length;
       return Response.json({
@@ -148,7 +134,6 @@ export default {
       }, { headers: corsHeaders });
     }
 
-    // Route: /status
     if (path === '/status' && method === 'GET') {
       const jobId = url.searchParams.get('job_id');
       
@@ -186,7 +171,6 @@ export default {
       }
     }
 
-    // 404 for unknown routes
     return Response.json({
       success: false,
       error: 'Endpoint not found'
