@@ -73,7 +73,7 @@ export default {
         await page.type('textarea.textarea', text);
         
         // Click generate button
-        await page.click('button.btn-primary:has-text("Generate Voiceover")');
+        await page.click('button.btn-primary');
         
         // Wait for audio URL (check every 0.5 seconds, max 90 seconds)
         let audioUrl = null;
