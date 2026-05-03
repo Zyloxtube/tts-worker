@@ -1,4 +1,4 @@
-import playwright from '@cloudflare/playwright';
+import puppeteer from '@cloudflare/puppeteer';
 
 const CHARACTER_URLS = {
   'spongebob': 'https://nicevoice.org/ai-voice-generator/spongebob-squarepants/',
@@ -58,28 +58,25 @@ export default {
       try {
         jobs.set(jobId, { ...jobs.get(jobId), status: 'processing' });
 
-        // Get WebSocket endpoint from Browser Run binding
-        const browserWsEndpoint = env.MYBROWSER;
-        
-        // Connect via CDP - this is the correct way for Workers
-        const browser = await playwright.chromium.connectOverCDP(browserWsEndpoint);
+        // CORRECT: Pass the binding directly to puppeteer.launch()
+        const browser = await puppeteer.launch(env.MYBROWSER);
         
         const page = await browser.newPage();
         
         const voiceUrl = CHARACTER_URLS[character];
         
         await page.goto(voiceUrl, { waitUntil: 'networkidle' });
-        await page.waitForTimeout(2000);
+        await new Promise(resolve => setTimeout(resolve, 2000));
         
-        await page.fill('textarea.textarea', text);
+        await page.type('textarea.textarea', text);
         await page.click('button.btn-primary:has-text("Generate Voiceover")');
         
         let audioUrl = null;
         for (let i = 0; i < 180; i++) {
-          await page.waitForTimeout(500);
+          await new Promise(resolve => setTimeout(resolve, 500));
           const audioElement = await page.$('audio[src*=".mp3"]');
           if (audioElement) {
-            audioUrl = await audioElement.getAttribute('src');
+            audioUrl = await page.evaluate(el => el.getAttribute('src'), audioElement);
             if (audioUrl) break;
           }
         }
@@ -132,7 +129,7 @@ export default {
         status: 'healthy',
         active_jobs: activeJobs,
         total_jobs: jobs.size,
-        platform: 'Cloudflare Workers + Playwright (CDP)'
+        platform: 'Cloudflare Workers + Puppeteer'
       }, { headers: corsHeaders });
     }
 
