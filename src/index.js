@@ -63,8 +63,8 @@ export default {
       });
 
       try {
-        // Launch browser using Cloudflare's Browser Run
-        const browser = await env.MYBROWSER.start();
+        // Launch browser using Cloudflare's Browser Run - CHANGED from start() to launch()
+        const browser = await env.MYBROWSER.launch();
         
         jobs.set(jobId, { ...jobs.get(jobId), status: 'processing' });
 
