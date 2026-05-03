@@ -29,7 +29,6 @@ export default {
       return new Response(null, { status: 204, headers: corsHeaders });
     }
 
-    // Route: /generate-and-wait
     if (path === '/generate-and-wait' && method === 'GET') {
       const text = url.searchParams.get('text')?.trim();
       const characterParam = url.searchParams.get('character')?.toLowerCase().replace(/\s/g, '') || 'spongebob';
@@ -57,24 +56,20 @@ export default {
       try {
         jobs.set(jobId, { ...jobs.get(jobId), status: 'processing' });
 
-        // Launch browser
         const browser = await puppeteer.launch(env.MYBROWSER);
         const page = await browser.newPage();
         
         const voiceUrl = CHARACTER_URLS[character];
         
-        // Navigate to character page - same as Python version
         await page.goto(voiceUrl, { waitUntil: 'networkidle2' });
-        await page.waitForTimeout(2000);
+        await new Promise(resolve => setTimeout(resolve, 2000));
         
-        // Type text in textarea - same as Python version
         const textarea = await page.$('textarea.textarea');
         if (textarea) {
           await textarea.click({ clickCount: 3 });
           await textarea.type(text);
         }
         
-        // Click generate button - same as Python version using querySelector
         const generateButton = await page.evaluateHandle(() => {
           const buttons = document.querySelectorAll('button.btn-primary');
           for (const btn of buttons) {
@@ -89,10 +84,9 @@ export default {
           await generateButton.click();
         }
         
-        // Wait for audio URL - checking every 0.5 seconds, max 90 seconds
         let audioUrl = null;
         for (let i = 0; i < 180; i++) {
-          await page.waitForTimeout(500);
+          await new Promise(resolve => setTimeout(resolve, 500));
           const audioElement = await page.$('audio[src*=".mp3"]');
           if (audioElement) {
             audioUrl = await page.evaluate(el => el.getAttribute('src'), audioElement);
@@ -134,7 +128,6 @@ export default {
       }
     }
 
-    // Route: /characters
     if (path === '/characters' && method === 'GET') {
       return Response.json({
         success: true,
@@ -143,7 +136,6 @@ export default {
       }, { headers: corsHeaders });
     }
 
-    // Route: /health
     if (path === '/health' || path === '/') {
       const activeJobs = Array.from(jobs.values()).filter(j => j.status === 'processing').length;
       return Response.json({
@@ -154,7 +146,6 @@ export default {
       }, { headers: corsHeaders });
     }
 
-    // Route: /status
     if (path === '/status' && method === 'GET') {
       const jobId = url.searchParams.get('job_id');
       
