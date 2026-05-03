@@ -58,19 +58,24 @@ export default {
       try {
         jobs.set(jobId, { ...jobs.get(jobId), status: 'processing' });
 
-        // CORRECT: Pass the binding directly to puppeteer.launch()
+        // Launch browser using Cloudflare's Puppeteer
         const browser = await puppeteer.launch(env.MYBROWSER);
         
         const page = await browser.newPage();
         
         const voiceUrl = CHARACTER_URLS[character];
         
-        await page.goto(voiceUrl, { waitUntil: 'networkidle' });
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        // FIXED: Changed from 'networkidle' to 'domcontentloaded'
+        await page.goto(voiceUrl, { waitUntil: 'domcontentloaded' });
+        await new Promise(resolve => setTimeout(resolve, 3000));
         
+        // Type text in textarea
         await page.type('textarea.textarea', text);
+        
+        // Click generate button
         await page.click('button.btn-primary:has-text("Generate Voiceover")');
         
+        // Wait for audio URL (check every 0.5 seconds, max 90 seconds)
         let audioUrl = null;
         for (let i = 0; i < 180; i++) {
           await new Promise(resolve => setTimeout(resolve, 500));
