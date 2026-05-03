@@ -8,9 +8,87 @@ const CHARACTER_URLS = {
 };
 
 const jobs = new Map();
+let persistentBrowser = null;
+let pendingRequests = [];
+let isProcessing = false;
 
 function generateJobId() {
   return crypto.randomUUID();
+}
+
+async function getBrowser(env) {
+  if (!persistentBrowser) {
+    persistentBrowser = await puppeteer.launch(env.MYBROWSER);
+  }
+  return persistentBrowser;
+}
+
+async function generateVoiceover(text, character, env) {
+  const browser = await getBrowser(env);
+  const page = await browser.newPage();
+  
+  try {
+    const voiceUrl = CHARACTER_URLS[character];
+    
+    await page.goto(voiceUrl, { waitUntil: 'networkidle2' });
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    const textarea = await page.$('textarea.textarea');
+    if (textarea) {
+      await textarea.click({ clickCount: 3 });
+      await textarea.type(text);
+    }
+    
+    const generateButton = await page.evaluateHandle(() => {
+      const buttons = document.querySelectorAll('button.btn-primary');
+      for (const btn of buttons) {
+        if (btn.textContent && btn.textContent.includes('Generate Voiceover')) {
+          return btn;
+        }
+      }
+      return null;
+    });
+    
+    if (generateButton) {
+      await generateButton.click();
+    }
+    
+    let audioUrl = null;
+    for (let i = 0; i < 180; i++) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+      const audioElement = await page.$('audio[src*=".mp3"]');
+      if (audioElement) {
+        audioUrl = await page.evaluate(el => el.getAttribute('src'), audioElement);
+        if (audioUrl) break;
+      }
+    }
+    
+    return { success: true, audio_url: audioUrl, text, character };
+    
+  } catch (error) {
+    return { success: false, error: error.message };
+  } finally {
+    await page.close();
+  }
+}
+
+async function processQueue(env) {
+  if (isProcessing) return;
+  if (pendingRequests.length === 0) return;
+  
+  isProcessing = true;
+  
+  while (pendingRequests.length > 0) {
+    const request = pendingRequests.shift();
+    try {
+      const result = await generateVoiceover(request.text, request.character, env);
+      request.resolve(result);
+    } catch (error) {
+      request.reject(error);
+    }
+  }
+  
+  isProcessing = false;
 }
 
 export default {
@@ -31,7 +109,7 @@ export default {
 
     if (path === '/generate-and-wait' && method === 'GET') {
       const text = url.searchParams.get('text')?.trim();
-      const characterParam = url.searchParams.get('character')?.toLowerCase().replace(/\s/g, '') || 'spongebob';
+      let character = url.searchParams.get('character')?.toLowerCase().replace(/\s/g, '') || 'spongebob';
 
       if (!text) {
         return Response.json({
@@ -40,7 +118,6 @@ export default {
         }, { status: 400, headers: corsHeaders });
       }
 
-      let character = characterParam;
       if (!CHARACTER_URLS[character]) {
         character = 'spongebob';
       }
@@ -56,62 +133,33 @@ export default {
       try {
         jobs.set(jobId, { ...jobs.get(jobId), status: 'processing' });
 
-        const browser = await puppeteer.launch(env.MYBROWSER);
-        const page = await browser.newPage();
-        
-        const voiceUrl = CHARACTER_URLS[character];
-        
-        await page.goto(voiceUrl, { waitUntil: 'networkidle2' });
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        
-        const textarea = await page.$('textarea.textarea');
-        if (textarea) {
-          await textarea.click({ clickCount: 3 });
-          await textarea.type(text);
-        }
-        
-        const generateButton = await page.evaluateHandle(() => {
-          const buttons = document.querySelectorAll('button.btn-primary');
-          for (const btn of buttons) {
-            if (btn.textContent && btn.textContent.includes('Generate Voiceover')) {
-              return btn;
-            }
-          }
-          return null;
+        // Add to queue and wait for result
+        const result = await new Promise((resolve, reject) => {
+          pendingRequests.push({
+            text,
+            character,
+            resolve,
+            reject
+          });
+          processQueue(env);
         });
         
-        if (generateButton) {
-          await generateButton.click();
-        }
-        
-        let audioUrl = null;
-        for (let i = 0; i < 180; i++) {
-          await new Promise(resolve => setTimeout(resolve, 500));
-          const audioElement = await page.$('audio[src*=".mp3"]');
-          if (audioElement) {
-            audioUrl = await page.evaluate(el => el.getAttribute('src'), audioElement);
-            if (audioUrl) break;
-          }
-        }
-        
-        await browser.close();
-        
-        if (audioUrl) {
+        if (result.success) {
           jobs.set(jobId, {
             ...jobs.get(jobId),
             status: 'completed',
-            audio_url: audioUrl,
+            audio_url: result.audio_url,
             completed_at: new Date().toISOString()
           });
           
           return Response.json({
             success: true,
-            audio_url: audioUrl,
-            text: text,
-            character: character
+            audio_url: result.audio_url,
+            text: result.text,
+            character: result.character
           }, { headers: corsHeaders });
         } else {
-          throw new Error('Timeout: Audio generation took too long');
+          throw new Error(result.error);
         }
         
       } catch (error) {
@@ -142,7 +190,9 @@ export default {
         status: 'healthy',
         active_jobs: activeJobs,
         total_jobs: jobs.size,
-        platform: 'Cloudflare Workers + Puppeteer'
+        queue_length: pendingRequests.length,
+        browser_alive: persistentBrowser !== null,
+        platform: 'Cloudflare Workers + Puppeteer (Persistent Browser)'
       }, { headers: corsHeaders });
     }
 
