@@ -1,4 +1,4 @@
-import { chromium } from '@cloudflare/playwright';
+import playwright from '@cloudflare/playwright';
 
 const CHARACTER_URLS = {
   'spongebob': 'https://nicevoice.org/ai-voice-generator/spongebob-squarepants/',
@@ -58,9 +58,9 @@ export default {
       try {
         jobs.set(jobId, { ...jobs.get(jobId), status: 'processing' });
 
-        // CORRECT WAY: Connect to Browser Run using Playwright
-        // The browser binding provides the WebSocket endpoint
-        const browser = await chromium.connectOverCDP(env.MYBROWSER);
+        // CORRECT: Launch browser using @cloudflare/playwright
+        // The browser binding provides the connection endpoint
+        const browser = await playwright.chromium.launch(env.MYBROWSER);
         
         const page = await browser.newPage();
         
