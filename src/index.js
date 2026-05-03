@@ -1,4 +1,4 @@
-import playwright from '@cloudflare/playwright';
+import { launch } from '@cloudflare/playwright';
 
 const CHARACTER_URLS = {
   'spongebob': 'https://nicevoice.org/ai-voice-generator/spongebob-squarepants/',
@@ -58,9 +58,8 @@ export default {
       try {
         jobs.set(jobId, { ...jobs.get(jobId), status: 'processing' });
 
-        // CORRECT: Launch browser using @cloudflare/playwright
-        // The browser binding provides the connection endpoint
-        const browser = await playwright.chromium.launch(env.MYBROWSER);
+        // CORRECT: Using launch() from @cloudflare/playwright as shown in Cloudflare docs [citation:3]
+        const browser = await launch(env.MYBROWSER);
         
         const page = await browser.newPage();
         
