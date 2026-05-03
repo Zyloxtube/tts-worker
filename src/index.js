@@ -1,4 +1,4 @@
-import { launch } from '@cloudflare/playwright';
+import playwright from '@cloudflare/playwright';
 
 const CHARACTER_URLS = {
   'spongebob': 'https://nicevoice.org/ai-voice-generator/spongebob-squarepants/',
@@ -58,8 +58,11 @@ export default {
       try {
         jobs.set(jobId, { ...jobs.get(jobId), status: 'processing' });
 
-        // CORRECT: Using launch() from @cloudflare/playwright as shown in Cloudflare docs [citation:3]
-        const browser = await launch(env.MYBROWSER);
+        // Get WebSocket endpoint from Browser Run binding
+        const browserWsEndpoint = env.MYBROWSER;
+        
+        // Connect via CDP - this is the correct way for Workers
+        const browser = await playwright.chromium.connectOverCDP(browserWsEndpoint);
         
         const page = await browser.newPage();
         
@@ -129,7 +132,7 @@ export default {
         status: 'healthy',
         active_jobs: activeJobs,
         total_jobs: jobs.size,
-        platform: 'Cloudflare Workers + Playwright'
+        platform: 'Cloudflare Workers + Playwright (CDP)'
       }, { headers: corsHeaders });
     }
 
